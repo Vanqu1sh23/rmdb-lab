@@ -83,23 +83,24 @@ extern int yydebug;
     MIN = 284,                     /* MIN  */
     SUM = 285,                     /* SUM  */
     AS = 286,                      /* AS  */
-    AND = 287,                     /* AND  */
-    JOIN = 288,                    /* JOIN  */
-    EXIT = 289,                    /* EXIT  */
-    HELP = 290,                    /* HELP  */
-    TXN_BEGIN = 291,               /* TXN_BEGIN  */
-    TXN_COMMIT = 292,              /* TXN_COMMIT  */
-    TXN_ABORT = 293,               /* TXN_ABORT  */
-    TXN_ROLLBACK = 294,            /* TXN_ROLLBACK  */
-    ORDER_BY = 295,                /* ORDER_BY  */
-    LEQ = 296,                     /* LEQ  */
-    NEQ = 297,                     /* NEQ  */
-    GEQ = 298,                     /* GEQ  */
-    T_EOF = 299,                   /* T_EOF  */
-    IDENTIFIER = 300,              /* IDENTIFIER  */
-    VALUE_STRING = 301,            /* VALUE_STRING  */
-    VALUE_INT = 302,               /* VALUE_INT  */
-    VALUE_FLOAT = 303              /* VALUE_FLOAT  */
+    LIMIT = 287,                   /* LIMIT  */
+    AND = 288,                     /* AND  */
+    JOIN = 289,                    /* JOIN  */
+    EXIT = 290,                    /* EXIT  */
+    HELP = 291,                    /* HELP  */
+    TXN_BEGIN = 292,               /* TXN_BEGIN  */
+    TXN_COMMIT = 293,              /* TXN_COMMIT  */
+    TXN_ABORT = 294,               /* TXN_ABORT  */
+    TXN_ROLLBACK = 295,            /* TXN_ROLLBACK  */
+    ORDER_BY = 296,                /* ORDER_BY  */
+    LEQ = 297,                     /* LEQ  */
+    NEQ = 298,                     /* NEQ  */
+    GEQ = 299,                     /* GEQ  */
+    T_EOF = 300,                   /* T_EOF  */
+    IDENTIFIER = 301,              /* IDENTIFIER  */
+    VALUE_STRING = 302,            /* VALUE_STRING  */
+    VALUE_INT = 303,               /* VALUE_INT  */
+    VALUE_FLOAT = 304              /* VALUE_FLOAT  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif

@@ -281,7 +281,7 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query)
 std::shared_ptr<Plan> Planner::generate_sort_plan(std::shared_ptr<Query> query, std::shared_ptr<Plan> plan)
 {
     auto x = std::dynamic_pointer_cast<ast::SelectStmt>(query->parse);
-    if(!x->has_sort) {
+    if(!x->has_sort && x->limit < 0) {
         return plan;
     }
     std::vector<std::string> tables = query->tables;
@@ -291,13 +291,29 @@ std::shared_ptr<Plan> Planner::generate_sort_plan(std::shared_ptr<Query> query, 
         const auto &sel_tab_cols = sm_manager_->db_.get_table(sel_tab_name).cols;
         all_cols.insert(all_cols.end(), sel_tab_cols.begin(), sel_tab_cols.end());
     }
-    TabCol sel_col;
-    for (auto &col : all_cols) {
-        if(col.name.compare(x->order->cols->col_name) == 0 )
-        sel_col = {.tab_name = col.tab_name, .col_name = col.name};
+
+    std::vector<std::pair<TabCol, bool>> order_cols;
+    for (auto &order_item : x->order) {
+        TabCol target = {.tab_name = order_item->cols->tab_name, .col_name = order_item->cols->col_name};
+        std::vector<ColMeta> matches;
+        for (auto &col : all_cols) {
+            if (col.name == target.col_name && (target.tab_name.empty() || col.tab_name == target.tab_name)) {
+                matches.push_back(col);
+            }
+        }
+        if (matches.empty()) {
+            throw ColumnNotFoundError(target.tab_name + '.' + target.col_name);
+        }
+        if (target.tab_name.empty() && matches.size() > 1) {
+            throw AmbiguousColumnError(target.col_name);
+        }
+        target.tab_name = matches[0].tab_name;
+        target.col_name = matches[0].name;
+        bool is_desc = order_item->orderby_dir == ast::OrderBy_DESC;
+        order_cols.emplace_back(target, is_desc);
     }
-    return std::make_shared<SortPlan>(T_Sort, std::move(plan), sel_col, 
-                                    x->order->orderby_dir == ast::OrderBy_DESC);
+
+    return std::make_shared<SortPlan>(T_Sort, std::move(plan), std::move(order_cols), x->limit);
 }
 
 

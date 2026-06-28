@@ -85,6 +85,7 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."
 "MIN" { return MIN; }
 "SUM" { return SUM; }
 "AS" { return AS; }
+"LIMIT" { return LIMIT; }
 "AND" { return AND; }
 "JOIN" {return JOIN;}
 "EXIT" { return EXIT; }

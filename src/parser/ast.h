@@ -233,16 +233,18 @@ struct SelectStmt : public TreeNode {
 
     
     bool has_sort;
-    std::shared_ptr<OrderBy> order;
+    std::vector<std::shared_ptr<OrderBy>> order;
+    int limit;
 
 
     SelectStmt(std::vector<std::shared_ptr<Col>> cols_,
                std::vector<std::string> tabs_,
                std::vector<std::shared_ptr<BinaryExpr>> conds_,
-               std::shared_ptr<OrderBy> order_) :
+               std::vector<std::shared_ptr<OrderBy>> order_,
+               int limit_) :
             cols(std::move(cols_)), tabs(std::move(tabs_)), conds(std::move(conds_)), 
-            order(std::move(order_)) {
-                has_sort = (bool)order;
+            order(std::move(order_)), limit(limit_) {
+                has_sort = !order.empty();
             }
 };
 
@@ -278,6 +280,8 @@ struct SemValue {
     std::vector<std::shared_ptr<BinaryExpr>> sv_conds;
 
     std::shared_ptr<OrderBy> sv_orderby;
+    std::vector<std::shared_ptr<OrderBy>> sv_orderbys;
+    int sv_limit;
 };
 
 extern std::shared_ptr<ast::TreeNode> parse_tree;
