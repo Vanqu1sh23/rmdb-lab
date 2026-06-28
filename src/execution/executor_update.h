@@ -50,18 +50,29 @@ class UpdateExecutor : public AbstractExecutor {
                 memcpy(new_rec.data + col->offset, set_clause.rhs.raw->data, col->len);
             }
 
+            struct IndexKeyPair { IndexMeta index; std::vector<char> old_key; std::vector<char> new_key; };
+            std::vector<IndexKeyPair> index_keys;
             for (auto &index : tab_.indexes) {
                 auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
-                std::vector<char> old_key(index.col_tot_len);
-                std::vector<char> new_key(index.col_tot_len);
+                IndexKeyPair pair{index, std::vector<char>(index.col_tot_len), std::vector<char>(index.col_tot_len)};
                 int offset = 0;
                 for (auto &col : index.cols) {
-                    memcpy(old_key.data() + offset, old_rec->data + col.offset, col.len);
-                    memcpy(new_key.data() + offset, new_rec.data + col.offset, col.len);
+                    memcpy(pair.old_key.data() + offset, old_rec->data + col.offset, col.len);
+                    memcpy(pair.new_key.data() + offset, new_rec.data + col.offset, col.len);
                     offset += col.len;
                 }
-                ih->delete_entry(old_key.data(), context_->txn_);
-                ih->insert_entry(new_key.data(), rid, context_->txn_);
+                std::vector<Rid> existing;
+                if (memcmp(pair.old_key.data(), pair.new_key.data(), index.col_tot_len) != 0 &&
+                    ih->get_value(pair.new_key.data(), &existing, context_ == nullptr ? nullptr : context_->txn_)) {
+                    throw InternalError("Duplicate key for unique index");
+                }
+                index_keys.push_back(std::move(pair));
+            }
+
+            for (auto &pair : index_keys) {
+                auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, pair.index.cols)).get();
+                ih->delete_entry(pair.old_key.data(), context_ == nullptr ? nullptr : context_->txn_);
+                ih->insert_entry(pair.new_key.data(), rid, context_ == nullptr ? nullptr : context_->txn_);
             }
 
             fh_->update_record(rid, new_rec.data, context_);

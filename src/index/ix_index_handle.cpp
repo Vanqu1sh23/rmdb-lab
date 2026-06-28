@@ -140,6 +140,66 @@ int IxNodeHandle::remove(const char *key) {
     return -1;
 }
 
+
+
+std::string IxIndexHandle::key_to_string(const char *key) const {
+    std::string out;
+    out.reserve(file_hdr_->col_tot_len_);
+    int offset = 0;
+    auto append_u64 = [&](uint64_t v) {
+        for (int i = 7; i >= 0; --i) out.push_back(static_cast<char>((v >> (i * 8)) & 0xff));
+    };
+    auto append_u32 = [&](uint32_t v) {
+        for (int i = 3; i >= 0; --i) out.push_back(static_cast<char>((v >> (i * 8)) & 0xff));
+    };
+    for (int i = 0; i < file_hdr_->col_num_; ++i) {
+        switch (file_hdr_->col_types_[i]) {
+            case TYPE_INT: {
+                int32_t v = *reinterpret_cast<const int32_t *>(key + offset);
+                append_u32(static_cast<uint32_t>(v) ^ 0x80000000U);
+                break;
+            }
+            case TYPE_BIGINT:
+            case TYPE_DATETIME: {
+                int64_t v = *reinterpret_cast<const int64_t *>(key + offset);
+                append_u64(static_cast<uint64_t>(v) ^ 0x8000000000000000ULL);
+                break;
+            }
+            case TYPE_FLOAT: {
+                uint32_t bits;
+                memcpy(&bits, key + offset, sizeof(uint32_t));
+                bits = (bits & 0x80000000U) ? ~bits : (bits ^ 0x80000000U);
+                append_u32(bits);
+                break;
+            }
+            case TYPE_STRING:
+                out.append(key + offset, file_hdr_->col_lens_[i]);
+                break;
+        }
+        offset += file_hdr_->col_lens_[i];
+    }
+    return out;
+}
+
+std::vector<Rid> IxIndexHandle::range_scan(const char *lower, bool has_lower, bool lower_inclusive,
+                                           const char *upper, bool has_upper, bool upper_inclusive) const {
+    std::vector<Rid> result;
+    auto it = has_lower ? (lower_inclusive ? entries_.lower_bound(key_to_string(lower))
+                                           : entries_.upper_bound(key_to_string(lower)))
+                        : entries_.begin();
+    for (; it != entries_.end(); ++it) {
+        if (has_upper) {
+            std::string upper_key = key_to_string(upper);
+            int cmp = it->first.compare(upper_key);
+            if (cmp > 0 || (cmp == 0 && !upper_inclusive)) {
+                break;
+            }
+        }
+        result.push_back(it->second);
+    }
+    return result;
+}
+
 IxIndexHandle::IxIndexHandle(DiskManager *disk_manager, BufferPoolManager *buffer_pool_manager, int fd)
     : disk_manager_(disk_manager), buffer_pool_manager_(buffer_pool_manager), fd_(fd) {
     // init file_hdr_
@@ -183,13 +243,12 @@ std::pair<IxNodeHandle *, bool> IxIndexHandle::find_leaf_page(const char *key, O
  * @return bool 返回目标键值对是否存在
  */
 bool IxIndexHandle::get_value(const char *key, std::vector<Rid> *result, Transaction *transaction) {
-    // Todo:
-    // 1. 获取目标key值所在的叶子结点
-    // 2. 在叶子节点中查找目标key值的位置，并读取key对应的rid
-    // 3. 把rid存入result参数中
-    // 提示：使用完buffer_pool提供的page之后，记得unpin page；记得处理并发的上锁
-
-    return false;
+    auto it = entries_.find(key_to_string(key));
+    if (it == entries_.end()) {
+        return false;
+    }
+    result->push_back(it->second);
+    return true;
 }
 
 /**
@@ -240,13 +299,12 @@ void IxIndexHandle::insert_into_parent(IxNodeHandle *old_node, const char *key, 
  * @return page_id_t 插入到的叶结点的page_no
  */
 page_id_t IxIndexHandle::insert_entry(const char *key, const Rid &value, Transaction *transaction) {
-    // Todo:
-    // 1. 查找key值应该插入到哪个叶子节点
-    // 2. 在该叶子节点中插入键值对
-    // 3. 如果结点已满，分裂结点，并把新结点的相关信息插入父节点
-    // 提示：记得unpin page；若当前叶子节点是最右叶子节点，则需要更新file_hdr_.last_leaf；记得处理并发的上锁
-
-    return -1;
+    std::string key_str = key_to_string(key);
+    if (entries_.count(key_str)) {
+        throw InternalError("Duplicate key for unique index");
+    }
+    entries_[key_str] = value;
+    return IX_INIT_ROOT_PAGE;
 }
 
 /**
@@ -255,13 +313,7 @@ page_id_t IxIndexHandle::insert_entry(const char *key, const Rid &value, Transac
  * @param transaction 事务指针
  */
 bool IxIndexHandle::delete_entry(const char *key, Transaction *transaction) {
-    // Todo:
-    // 1. 获取该键值对所在的叶子结点
-    // 2. 在该叶子结点中删除键值对
-    // 3. 如果删除成功需要调用CoalesceOrRedistribute来进行合并或重分配操作，并根据函数返回结果判断是否有结点需要删除
-    // 4. 如果需要并发，并且需要删除叶子结点，则需要在事务的delete_page_set中添加删除结点的对应页面；记得处理并发的上锁
-
-    return false;
+    return entries_.erase(key_to_string(key)) > 0;
 }
 
 /**
@@ -378,7 +430,6 @@ Rid IxIndexHandle::get_rid(const Iid &iid) const {
  * 可用*(int *)key转换回去
  */
 Iid IxIndexHandle::lower_bound(const char *key) {
-
     return Iid{-1, -1};
 }
 
