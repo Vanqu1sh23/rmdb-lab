@@ -72,6 +72,11 @@ class IndexScanExecutor : public AbstractExecutor {
         index_col_names_ = index_col_names; 
         index_meta_ = *(tab_.get_index_meta(index_col_names_));
         fh_ = sm_manager_->fhs_.at(tab_name_).get();
+        if (context_ != nullptr && context_->txn_ != nullptr && context_->lock_mgr_ != nullptr) {
+            if (!context_->lock_mgr_->lock_shared_on_table(context_->txn_, fh_->GetFd())) {
+                throw TransactionAbortException(context_->txn_->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
+            }
+        }
         cols_ = tab_.cols;
         len_ = cols_.back().offset + cols_.back().len;
         std::map<CompOp, CompOp> swap_op = {

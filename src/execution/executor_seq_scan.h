@@ -37,10 +37,14 @@ class SeqScanExecutor : public AbstractExecutor {
         conds_ = std::move(conds);
         TabMeta &tab = sm_manager_->db_.get_table(tab_name_);
         fh_ = sm_manager_->fhs_.at(tab_name_).get();
+        context_ = context;
+        if (context_ != nullptr && context_->txn_ != nullptr && context_->lock_mgr_ != nullptr) {
+            if (!context_->lock_mgr_->lock_shared_on_table(context_->txn_, fh_->GetFd())) {
+                throw TransactionAbortException(context_->txn_->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
+            }
+        }
         cols_ = tab.cols;
         len_ = cols_.back().offset + cols_.back().len;
-
-        context_ = context;
 
         fed_conds_ = conds_;
     }

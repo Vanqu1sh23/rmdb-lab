@@ -35,6 +35,11 @@ class InsertExecutor : public AbstractExecutor {
         }
         fh_ = sm_manager_->fhs_.at(tab_name).get();
         context_ = context;
+        if (context_ != nullptr && context_->txn_ != nullptr && context_->lock_mgr_ != nullptr) {
+            if (!context_->lock_mgr_->lock_exclusive_on_table(context_->txn_, fh_->GetFd())) {
+                throw TransactionAbortException(context_->txn_->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
+            }
+        }
     };
 
     std::unique_ptr<RmRecord> Next() override {
