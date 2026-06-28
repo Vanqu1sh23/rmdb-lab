@@ -9,6 +9,9 @@ MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
 #include <cstdint>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 
 #include "execution_manager.h"
 
@@ -135,65 +138,145 @@ void QlManager::run_cmd_utility(std::shared_ptr<Plan> plan, txn_id_t *txn_id, Co
 }
 
 // 执行select语句，select语句的输出除了需要返回客户端外，还需要写入output.txt文件中
+namespace {
+std::string value_to_output_string(const char *rec_buf, ColType type, int len) {
+    if (type == TYPE_INT) return std::to_string(*(int *)rec_buf);
+    if (type == TYPE_BIGINT) return std::to_string(*(int64_t *)rec_buf);
+    if (type == TYPE_FLOAT) return std::to_string(*(float *)rec_buf);
+    if (type == TYPE_STRING) {
+        std::string col_str((char *)rec_buf, len);
+        col_str.resize(strlen(col_str.c_str()));
+        return col_str;
+    }
+    if (type == TYPE_DATETIME) return datetime_to_string(*(int64_t *)rec_buf);
+    return "";
+}
+
+long double numeric_value(const char *rec_buf, ColType type) {
+    if (type == TYPE_INT) return *(int *)rec_buf;
+    if (type == TYPE_BIGINT) return *(int64_t *)rec_buf;
+    if (type == TYPE_FLOAT) return *(float *)rec_buf;
+    return 0;
+}
+
+void print_output_row(const std::vector<std::string> &columns, Context *context, std::fstream &outfile, const RecordPrinter &printer) {
+    printer.print_record(columns, context);
+    outfile << "|";
+    for (auto &column : columns) outfile << " " << column << " |";
+    outfile << "\n";
+}
+}
+
 void QlManager::select_from(std::unique_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols, 
                             Context *context) {
+    bool has_agg = false;
+    for (auto &sel_col : sel_cols) {
+        if (sel_col.agg_type != AggType::NONE) {
+            has_agg = true;
+            break;
+        }
+    }
+
     std::vector<std::string> captions;
     captions.reserve(sel_cols.size());
     for (auto &sel_col : sel_cols) {
-        captions.push_back(sel_col.col_name);
+        captions.push_back(has_agg ? sel_col.alias : sel_col.col_name);
     }
 
-    // Print header into buffer
     RecordPrinter rec_printer(sel_cols.size());
     rec_printer.print_separator(context);
     rec_printer.print_record(captions, context);
     rec_printer.print_separator(context);
-    // print header into file
     std::fstream outfile;
     outfile.open("output.txt", std::ios::out | std::ios::app);
     outfile << "|";
-    for(int i = 0; i < captions.size(); ++i) {
-        outfile << " " << captions[i] << " |";
-    }
+    for (auto &caption : captions) outfile << " " << caption << " |";
     outfile << "\n";
 
-    // Print records
+    if (has_agg) {
+        struct AggState {
+            bool seen = false;
+            long double numeric = 0;
+            std::string text;
+            ColType type = TYPE_INT;
+        };
+        std::vector<AggState> states(sel_cols.size());
+        size_t row_count = 0;
+        auto &input_cols = executorTreeRoot->cols();
+        std::vector<std::vector<ColMeta>::const_iterator> target_cols(sel_cols.size(), input_cols.end());
+        for (size_t i = 0; i < sel_cols.size(); ++i) {
+            if (!(sel_cols[i].agg_type == AggType::COUNT && sel_cols[i].is_star)) {
+                target_cols[i] = executorTreeRoot->get_col(input_cols, sel_cols[i]);
+                states[i].type = target_cols[i]->type;
+            }
+        }
+
+        for (executorTreeRoot->beginTuple(); !executorTreeRoot->is_end(); executorTreeRoot->nextTuple()) {
+            auto tuple = executorTreeRoot->Next();
+            row_count++;
+            for (size_t i = 0; i < sel_cols.size(); ++i) {
+                auto &sel_col = sel_cols[i];
+                auto &state = states[i];
+                if (sel_col.agg_type == AggType::COUNT) continue;
+                const auto &col = *target_cols[i];
+                const char *buf = tuple->data + col.offset;
+                if (sel_col.agg_type == AggType::SUM) {
+                    state.numeric += numeric_value(buf, col.type);
+                    state.seen = true;
+                } else if (sel_col.agg_type == AggType::MAX || sel_col.agg_type == AggType::MIN) {
+                    std::string text = value_to_output_string(buf, col.type, col.len);
+                    long double num = numeric_value(buf, col.type);
+                    bool better = !state.seen;
+                    if (col.type == TYPE_STRING) {
+                        if (sel_col.agg_type == AggType::MAX) better = better || text > state.text;
+                        else better = better || text < state.text;
+                    } else {
+                        if (sel_col.agg_type == AggType::MAX) better = better || num > state.numeric;
+                        else better = better || num < state.numeric;
+                    }
+                    if (better) {
+                        state.numeric = num;
+                        state.text = text;
+                        state.seen = true;
+                    }
+                }
+            }
+        }
+
+        std::vector<std::string> columns;
+        for (size_t i = 0; i < sel_cols.size(); ++i) {
+            auto &sel_col = sel_cols[i];
+            auto &state = states[i];
+            if (sel_col.agg_type == AggType::COUNT) {
+                columns.push_back(std::to_string(row_count));
+            } else if (sel_col.agg_type == AggType::SUM) {
+                if (state.type == TYPE_FLOAT) columns.push_back(std::to_string(static_cast<float>(state.numeric)));
+                else columns.push_back(std::to_string(static_cast<int64_t>(state.numeric)));
+            } else if (sel_col.agg_type == AggType::MAX || sel_col.agg_type == AggType::MIN) {
+                if (state.type == TYPE_STRING || state.type == TYPE_DATETIME) columns.push_back(state.text);
+                else if (state.type == TYPE_FLOAT) columns.push_back(std::to_string(static_cast<float>(state.numeric)));
+                else columns.push_back(std::to_string(static_cast<int64_t>(state.numeric)));
+            }
+        }
+        print_output_row(columns, context, outfile, rec_printer);
+        outfile.close();
+        rec_printer.print_separator(context);
+        RecordPrinter::print_record_count(1, context);
+        return;
+    }
+
     size_t num_rec = 0;
-    // 执行query_plan
     for (executorTreeRoot->beginTuple(); !executorTreeRoot->is_end(); executorTreeRoot->nextTuple()) {
         auto Tuple = executorTreeRoot->Next();
         std::vector<std::string> columns;
         for (auto &col : executorTreeRoot->cols()) {
-            std::string col_str;
-            char *rec_buf = Tuple->data + col.offset;
-            if (col.type == TYPE_INT) {
-                col_str = std::to_string(*(int *)rec_buf);
-            } else if (col.type == TYPE_BIGINT) {
-                col_str = std::to_string(*(int64_t *)rec_buf);
-            } else if (col.type == TYPE_FLOAT) {
-                col_str = std::to_string(*(float *)rec_buf);
-            } else if (col.type == TYPE_STRING) {
-                col_str = std::string((char *)rec_buf, col.len);
-                col_str.resize(strlen(col_str.c_str()));
-            } else if (col.type == TYPE_DATETIME) {
-                col_str = datetime_to_string(*(int64_t *)rec_buf);
-            }
-            columns.push_back(col_str);
+            columns.push_back(value_to_output_string(Tuple->data + col.offset, col.type, col.len));
         }
-        // print record into buffer
-        rec_printer.print_record(columns, context);
-        // print record into file
-        outfile << "|";
-        for(int i = 0; i < columns.size(); ++i) {
-            outfile << " " << columns[i] << " |";
-        }
-        outfile << "\n";
+        print_output_row(columns, context, outfile, rec_printer);
         num_rec++;
     }
     outfile.close();
-    // Print footer into buffer
     rec_printer.print_separator(context);
-    // Print record count into buffer
     RecordPrinter::print_record_count(num_rec, context);
 }
 

@@ -80,6 +80,11 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."
 "BIGINT" { return BIGINT; }
 "DATETIME" { return DATETIME; }
 "INDEX" { return INDEX; }
+"COUNT" { return COUNT; }
+"MAX" { return MAX; }
+"MIN" { return MIN; }
+"SUM" { return SUM; }
+"AS" { return AS; }
 "AND" { return AND; }
 "JOIN" {return JOIN;}
 "EXIT" { return EXIT; }

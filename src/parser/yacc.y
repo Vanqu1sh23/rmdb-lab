@@ -26,7 +26,7 @@ using namespace ast;
 
 // keywords
 %token SHOW TABLES CREATE TABLE DROP DESC INSERT INTO VALUES DELETE FROM ASC ORDER BY
-WHERE UPDATE SET SELECT INT CHAR FLOAT BIGINT DATETIME INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_COMMIT TXN_ABORT TXN_ROLLBACK ORDER_BY
+WHERE UPDATE SET SELECT INT CHAR FLOAT BIGINT DATETIME INDEX COUNT MAX MIN SUM AS AND JOIN EXIT HELP TXN_BEGIN TXN_COMMIT TXN_ABORT TXN_ROLLBACK ORDER_BY
 // non-keywords
 %token LEQ NEQ GEQ T_EOF
 
@@ -47,7 +47,8 @@ WHERE UPDATE SET SELECT INT CHAR FLOAT BIGINT DATETIME INDEX AND JOIN EXIT HELP 
 %type <sv_str> tbName colName
 %type <sv_strs> tableList colNameList
 %type <sv_col> col
-%type <sv_cols> colList selector
+%type <sv_cols> selector selectList
+%type <sv_col> selectItem
 %type <sv_set_clause> setClause
 %type <sv_set_clauses> setClauses
 %type <sv_cond> condition
@@ -277,17 +278,6 @@ col:
     }
     ;
 
-colList:
-        col
-    {
-        $$ = std::vector<std::shared_ptr<Col>>{$1};
-    }
-    |   colList ',' col
-    {
-        $$.push_back($3);
-    }
-    ;
-
 op:
         '='
     {
@@ -349,7 +339,45 @@ selector:
     {
         $$ = {};
     }
-    |   colList
+    |   selectList
+    ;
+
+selectList:
+        selectItem
+    {
+        $$ = std::vector<std::shared_ptr<Col>>{$1};
+    }
+    |   selectList ',' selectItem
+    {
+        $$.push_back($3);
+    }
+    ;
+
+selectItem:
+        col
+    {
+        $$ = $1;
+    }
+    |   COUNT '(' '*' ')' AS colName
+    {
+        $$ = std::make_shared<Col>(AggType::COUNT, nullptr, $6);
+    }
+    |   COUNT '(' col ')' AS colName
+    {
+        $$ = std::make_shared<Col>(AggType::COUNT, $3, $6);
+    }
+    |   MAX '(' col ')' AS colName
+    {
+        $$ = std::make_shared<Col>(AggType::MAX, $3, $6);
+    }
+    |   MIN '(' col ')' AS colName
+    {
+        $$ = std::make_shared<Col>(AggType::MIN, $3, $6);
+    }
+    |   SUM '(' col ')' AS colName
+    {
+        $$ = std::make_shared<Col>(AggType::SUM, $3, $6);
+    }
     ;
 
 tableList:

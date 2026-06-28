@@ -99,7 +99,11 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
 
         // 处理target list，再target list中添加上表名，例如 a.id
         for (auto &sv_sel_col : x->cols) {
-            TabCol sel_col = {.tab_name = sv_sel_col->tab_name, .col_name = sv_sel_col->col_name};
+            TabCol sel_col = {.tab_name = sv_sel_col->tab_name,
+                              .col_name = sv_sel_col->col_name,
+                              .agg_type = sv_sel_col->agg_type,
+                              .alias = sv_sel_col->alias,
+                              .is_star = sv_sel_col->is_star};
             query->cols.push_back(sel_col);
         }
         
@@ -114,7 +118,17 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         } else {
             // infer table name from column name
             for (auto &sel_col : query->cols) {
+                if (sel_col.agg_type == AggType::COUNT && sel_col.is_star) {
+                    continue;
+                }
                 sel_col = check_column(all_cols, sel_col);  // 列元数据校验
+                if (sel_col.agg_type == AggType::SUM) {
+                    TabMeta &tab = sm_manager_->db_.get_table(sel_col.tab_name);
+                    auto col = tab.get_col(sel_col.col_name);
+                    if (col->type != TYPE_INT && col->type != TYPE_BIGINT && col->type != TYPE_FLOAT) {
+                        throw IncompatibleTypeError("SUM", coltype2str(col->type));
+                    }
+                }
             }
         }
         //处理where条件

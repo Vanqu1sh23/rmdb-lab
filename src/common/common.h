@@ -25,9 +25,13 @@ See the Mulan PSL v2 for more details. */
 struct TabCol {
     std::string tab_name;
     std::string col_name;
+    AggType agg_type = AggType::NONE;
+    std::string alias;
+    bool is_star = false;
 
     friend bool operator<(const TabCol &x, const TabCol &y) {
-        return std::make_pair(x.tab_name, x.col_name) < std::make_pair(y.tab_name, y.col_name);
+        return std::make_tuple(x.tab_name, x.col_name, x.agg_type, x.alias, x.is_star) <
+               std::make_tuple(y.tab_name, y.col_name, y.agg_type, y.alias, y.is_star);
     }
 };
 

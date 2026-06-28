@@ -78,23 +78,28 @@ extern int yydebug;
     BIGINT = 279,                  /* BIGINT  */
     DATETIME = 280,                /* DATETIME  */
     INDEX = 281,                   /* INDEX  */
-    AND = 282,                     /* AND  */
-    JOIN = 283,                    /* JOIN  */
-    EXIT = 284,                    /* EXIT  */
-    HELP = 285,                    /* HELP  */
-    TXN_BEGIN = 286,               /* TXN_BEGIN  */
-    TXN_COMMIT = 287,              /* TXN_COMMIT  */
-    TXN_ABORT = 288,               /* TXN_ABORT  */
-    TXN_ROLLBACK = 289,            /* TXN_ROLLBACK  */
-    ORDER_BY = 290,                /* ORDER_BY  */
-    LEQ = 291,                     /* LEQ  */
-    NEQ = 292,                     /* NEQ  */
-    GEQ = 293,                     /* GEQ  */
-    T_EOF = 294,                   /* T_EOF  */
-    IDENTIFIER = 295,              /* IDENTIFIER  */
-    VALUE_STRING = 296,            /* VALUE_STRING  */
-    VALUE_INT = 297,               /* VALUE_INT  */
-    VALUE_FLOAT = 298              /* VALUE_FLOAT  */
+    COUNT = 282,                   /* COUNT  */
+    MAX = 283,                     /* MAX  */
+    MIN = 284,                     /* MIN  */
+    SUM = 285,                     /* SUM  */
+    AS = 286,                      /* AS  */
+    AND = 287,                     /* AND  */
+    JOIN = 288,                    /* JOIN  */
+    EXIT = 289,                    /* EXIT  */
+    HELP = 290,                    /* HELP  */
+    TXN_BEGIN = 291,               /* TXN_BEGIN  */
+    TXN_COMMIT = 292,              /* TXN_COMMIT  */
+    TXN_ABORT = 293,               /* TXN_ABORT  */
+    TXN_ROLLBACK = 294,            /* TXN_ROLLBACK  */
+    ORDER_BY = 295,                /* ORDER_BY  */
+    LEQ = 296,                     /* LEQ  */
+    NEQ = 297,                     /* NEQ  */
+    GEQ = 298,                     /* GEQ  */
+    T_EOF = 299,                   /* T_EOF  */
+    IDENTIFIER = 300,              /* IDENTIFIER  */
+    VALUE_STRING = 301,            /* VALUE_STRING  */
+    VALUE_INT = 302,               /* VALUE_INT  */
+    VALUE_FLOAT = 303              /* VALUE_FLOAT  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif

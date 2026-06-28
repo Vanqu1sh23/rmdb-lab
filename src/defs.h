@@ -43,6 +43,8 @@ enum ColType {
     TYPE_INT, TYPE_BIGINT, TYPE_FLOAT, TYPE_STRING, TYPE_DATETIME
 };
 
+enum class AggType { NONE, COUNT, MAX, MIN, SUM };
+
 inline std::string coltype2str(ColType type) {
     std::map<ColType, std::string> m = {
             {TYPE_INT,    "INT"},

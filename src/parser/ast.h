@@ -13,6 +13,8 @@ See the Mulan PSL v2 for more details. */
 #include <string>
 #include <memory>
 
+#include "defs.h"
+
 enum JoinType {
     INNER_JOIN, LEFT_JOIN, RIGHT_JOIN, FULL_JOIN
 };
@@ -142,9 +144,22 @@ struct StringLit : public Value {
 struct Col : public Expr {
     std::string tab_name;
     std::string col_name;
+    AggType agg_type = AggType::NONE;
+    std::string alias;
+    bool is_star = false;
 
     Col(std::string tab_name_, std::string col_name_) :
             tab_name(std::move(tab_name_)), col_name(std::move(col_name_)) {}
+
+    Col(AggType agg_type_, std::shared_ptr<Col> col_, std::string alias_) :
+            agg_type(agg_type_), alias(std::move(alias_)) {
+        if (col_ != nullptr) {
+            tab_name = std::move(col_->tab_name);
+            col_name = std::move(col_->col_name);
+        } else {
+            is_star = true;
+        }
+    }
 };
 
 struct SetClause : public TreeNode {

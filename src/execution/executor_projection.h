@@ -20,11 +20,24 @@ class ProjectionExecutor : public AbstractExecutor {
     std::unique_ptr<AbstractExecutor> prev_;        // 投影节点的儿子节点
     std::vector<ColMeta> cols_;                     // 需要投影的字段
     size_t len_;                                    // 字段总长度
-    std::vector<size_t> sel_idxs_;                  
+    std::vector<size_t> sel_idxs_;
+    bool aggregate_mode_ = false;
 
    public:
     ProjectionExecutor(std::unique_ptr<AbstractExecutor> prev, const std::vector<TabCol> &sel_cols) {
         prev_ = std::move(prev);
+
+        for (auto &sel_col : sel_cols) {
+            if (sel_col.agg_type != AggType::NONE) {
+                aggregate_mode_ = true;
+                break;
+            }
+        }
+        if (aggregate_mode_) {
+            cols_ = prev_->cols();
+            len_ = prev_->tupleLen();
+            return;
+        }
 
         size_t curr_offset = 0;
         auto &prev_cols = prev_->cols();
@@ -45,6 +58,9 @@ class ProjectionExecutor : public AbstractExecutor {
 
     std::unique_ptr<RmRecord> Next() override {
         auto prev_rec = prev_->Next();
+        if (aggregate_mode_) {
+            return prev_rec;
+        }
         auto rec = std::make_unique<RmRecord>(len_);
         auto &prev_cols = prev_->cols();
         for (size_t i = 0; i < sel_idxs_.size(); ++i) {
