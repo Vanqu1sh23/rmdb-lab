@@ -78,6 +78,7 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."
 "CHAR" { return CHAR; }
 "FLOAT" { return FLOAT; }
 "BIGINT" { return BIGINT; }
+"DATETIME" { return DATETIME; }
 "INDEX" { return INDEX; }
 "AND" { return AND; }
 "JOIN" {return JOIN;}

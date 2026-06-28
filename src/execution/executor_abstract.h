@@ -62,19 +62,28 @@ class AbstractExecutor {
         return type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_FLOAT;
     }
 
+    static bool is_ordered_i64_type(ColType type) {
+        return type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_DATETIME;
+    }
+
     static int64_t raw_to_i64(const char *data, ColType type) {
         if (type == TYPE_INT) return *reinterpret_cast<const int *>(data);
-        if (type == TYPE_BIGINT) return *reinterpret_cast<const int64_t *>(data);
+        if (type == TYPE_BIGINT || type == TYPE_DATETIME) return *reinterpret_cast<const int64_t *>(data);
         return static_cast<int64_t>(*reinterpret_cast<const float *>(data));
     }
 
     static long double raw_to_numeric(const char *data, ColType type) {
         if (type == TYPE_INT) return *reinterpret_cast<const int *>(data);
-        if (type == TYPE_BIGINT) return *reinterpret_cast<const int64_t *>(data);
+        if (type == TYPE_BIGINT || type == TYPE_DATETIME) return *reinterpret_cast<const int64_t *>(data);
         return *reinterpret_cast<const float *>(data);
     }
 
     static int compare_raw(const char *lhs, const char *rhs, ColType lhs_type, ColType rhs_type, int len) {
+        if (lhs_type == TYPE_DATETIME && rhs_type == TYPE_DATETIME) {
+            int64_t l = raw_to_i64(lhs, lhs_type);
+            int64_t r = raw_to_i64(rhs, rhs_type);
+            return (l > r) - (l < r);
+        }
         if (is_numeric_type(lhs_type) && is_numeric_type(rhs_type)) {
             if (lhs_type != TYPE_FLOAT && rhs_type != TYPE_FLOAT) {
                 int64_t l = raw_to_i64(lhs, lhs_type);
@@ -129,6 +138,10 @@ class AbstractExecutor {
 
     static void cast_value_to_col(Value &val, const ColMeta &col) {
         if (val.type == col.type) return;
+        if (col.type == TYPE_DATETIME && val.type == TYPE_STRING) {
+            val.set_datetime(parse_datetime_literal(val.str_val));
+            return;
+        }
         if (!is_numeric_type(val.type) || !is_numeric_type(col.type)) {
             throw IncompatibleTypeError(coltype2str(col.type), coltype2str(val.type));
         }

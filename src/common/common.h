@@ -16,7 +16,9 @@ See the Mulan PSL v2 for more details. */
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "defs.h"
+#include "errors.h"
 #include "record/rm_defs.h"
 
 
@@ -29,11 +31,78 @@ struct TabCol {
     }
 };
 
+
+inline bool is_datetime_leap_year(int year) {
+    return (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0);
+}
+
+inline int datetime_days_in_month(int year, int month) {
+    static const int days[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month == 2 && is_datetime_leap_year(year)) {
+        return 29;
+    }
+    return days[month];
+}
+
+inline int parse_datetime_part(const std::string &text, int begin, int len) {
+    int value = 0;
+    for (int i = begin; i < begin + len; ++i) {
+        if (i >= static_cast<int>(text.size()) || text[i] < '0' || text[i] > '9') {
+            throw InternalError("Invalid datetime literal");
+        }
+        value = value * 10 + (text[i] - '0');
+    }
+    return value;
+}
+
+inline int64_t parse_datetime_literal(const std::string &text) {
+    if (text.size() != 19 || text[4] != '-' || text[7] != '-' || text[10] != ' ' || text[13] != ':' || text[16] != ':') {
+        throw InternalError("Invalid datetime literal");
+    }
+    int year = parse_datetime_part(text, 0, 4);
+    int month = parse_datetime_part(text, 5, 2);
+    int day = parse_datetime_part(text, 8, 2);
+    int hour = parse_datetime_part(text, 11, 2);
+    int minute = parse_datetime_part(text, 14, 2);
+    int second = parse_datetime_part(text, 17, 2);
+
+    if (year < 1000 || year > 9999 || month < 1 || month > 12) {
+        throw InternalError("Invalid datetime literal");
+    }
+    if (day < 1 || day > datetime_days_in_month(year, month)) {
+        throw InternalError("Invalid datetime literal");
+    }
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+        throw InternalError("Invalid datetime literal");
+    }
+    return static_cast<int64_t>(year) * 10000000000LL + static_cast<int64_t>(month) * 100000000LL +
+           static_cast<int64_t>(day) * 1000000LL + static_cast<int64_t>(hour) * 10000LL +
+           static_cast<int64_t>(minute) * 100LL + second;
+}
+
+inline std::string datetime_to_string(int64_t value) {
+    int second = value % 100;
+    value /= 100;
+    int minute = value % 100;
+    value /= 100;
+    int hour = value % 100;
+    value /= 100;
+    int day = value % 100;
+    value /= 100;
+    int month = value % 100;
+    value /= 100;
+    int year = static_cast<int>(value);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+    return std::string(buf);
+}
+
 struct Value {
     ColType type;  // type of value
     union {
         int int_val;          // int value
         int64_t bigint_val;  // bigint value
+        int64_t datetime_val; // datetime value
         float float_val;      // float value
     };
     std::string str_val;  // string value
@@ -55,6 +124,11 @@ struct Value {
         float_val = float_val_;
     }
 
+    void set_datetime(int64_t datetime_val_) {
+        type = TYPE_DATETIME;
+        datetime_val = datetime_val_;
+    }
+
     void set_str(std::string str_val_) {
         type = TYPE_STRING;
         str_val = std::move(str_val_);
@@ -72,6 +146,9 @@ struct Value {
         } else if (type == TYPE_FLOAT) {
             assert(len == sizeof(float));
             *(float *)(raw->data) = float_val;
+        } else if (type == TYPE_DATETIME) {
+            assert(len == sizeof(int64_t));
+            *(int64_t *)(raw->data) = datetime_val;
         } else if (type == TYPE_STRING) {
             if (len < (int)str_val.size()) {
                 throw StringOverflowError();

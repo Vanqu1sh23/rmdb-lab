@@ -170,6 +170,8 @@ void QlManager::select_from(std::unique_ptr<AbstractExecutor> executorTreeRoot, 
             } else if (col.type == TYPE_STRING) {
                 col_str = std::string((char *)rec_buf, col.len);
                 col_str.resize(strlen(col_str.c_str()));
+            } else if (col.type == TYPE_DATETIME) {
+                col_str = datetime_to_string(*(int64_t *)rec_buf);
             }
             columns.push_back(col_str);
         }

@@ -20,7 +20,8 @@ bool is_numeric_type(ColType type) {
 }
 
 bool is_assignable(ColType target, ColType source) {
-    return target == source || (is_numeric_type(target) && is_numeric_type(source));
+    return target == source || (is_numeric_type(target) && is_numeric_type(source)) ||
+           (target == TYPE_DATETIME && source == TYPE_STRING);
 }
 
 int64_t value_to_i64(const Value &val) {
@@ -45,6 +46,10 @@ float value_to_float(const Value &val) {
 
 void cast_value_to_type(Value &val, ColType target_type) {
     if (val.type == target_type) {
+        return;
+    }
+    if (target_type == TYPE_DATETIME && val.type == TYPE_STRING) {
+        val.set_datetime(parse_datetime_literal(val.str_val));
         return;
     }
     if (!is_numeric_type(target_type) || !is_numeric_type(val.type)) {
