@@ -10,6 +10,8 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include <cstdint>
+
 #include "ix_defs.h"
 #include "transaction/transaction.h"
 
@@ -22,6 +24,11 @@ inline int ix_compare(const char *a, const char *b, ColType type, int col_len) {
         case TYPE_INT: {
             int ia = *(int *)a;
             int ib = *(int *)b;
+            return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
+        }
+        case TYPE_BIGINT: {
+            int64_t ia = *(int64_t *)a;
+            int64_t ib = *(int64_t *)b;
             return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
         }
         case TYPE_FLOAT: {

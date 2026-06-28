@@ -11,6 +11,8 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <cmath>
+#include <cstdint>
+#include <limits>
 
 #include "execution_defs.h"
 #include "common/common.h"
@@ -56,16 +58,32 @@ class AbstractExecutor {
         return pos;
     }
 
-    static int compare_raw(const char *lhs, const char *rhs, ColType type, int len) {
-        if (type == TYPE_INT) {
-            int l = *reinterpret_cast<const int *>(lhs);
-            int r = *reinterpret_cast<const int *>(rhs);
-            return (l > r) - (l < r);
-        }
-        if (type == TYPE_FLOAT) {
-            float l = *reinterpret_cast<const float *>(lhs);
-            float r = *reinterpret_cast<const float *>(rhs);
-            constexpr float eps = 1e-6f;
+    static bool is_numeric_type(ColType type) {
+        return type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_FLOAT;
+    }
+
+    static int64_t raw_to_i64(const char *data, ColType type) {
+        if (type == TYPE_INT) return *reinterpret_cast<const int *>(data);
+        if (type == TYPE_BIGINT) return *reinterpret_cast<const int64_t *>(data);
+        return static_cast<int64_t>(*reinterpret_cast<const float *>(data));
+    }
+
+    static long double raw_to_numeric(const char *data, ColType type) {
+        if (type == TYPE_INT) return *reinterpret_cast<const int *>(data);
+        if (type == TYPE_BIGINT) return *reinterpret_cast<const int64_t *>(data);
+        return *reinterpret_cast<const float *>(data);
+    }
+
+    static int compare_raw(const char *lhs, const char *rhs, ColType lhs_type, ColType rhs_type, int len) {
+        if (is_numeric_type(lhs_type) && is_numeric_type(rhs_type)) {
+            if (lhs_type != TYPE_FLOAT && rhs_type != TYPE_FLOAT) {
+                int64_t l = raw_to_i64(lhs, lhs_type);
+                int64_t r = raw_to_i64(rhs, rhs_type);
+                return (l > r) - (l < r);
+            }
+            long double l = raw_to_numeric(lhs, lhs_type);
+            long double r = raw_to_numeric(rhs, rhs_type);
+            constexpr long double eps = 1e-6L;
             if (std::fabs(l - r) <= eps) return 0;
             return l > r ? 1 : -1;
         }
@@ -88,13 +106,18 @@ class AbstractExecutor {
         auto lhs_col = get_col(rec_cols, cond.lhs_col);
         const char *lhs = rec->data + lhs_col->offset;
         const char *rhs = nullptr;
+        ColType rhs_type = lhs_col->type;
+        int cmp_len = lhs_col->len;
         if (cond.is_rhs_val) {
             rhs = cond.rhs_val.raw->data;
+            rhs_type = cond.rhs_val.type;
         } else {
             auto rhs_col = get_col(rec_cols, cond.rhs_col);
             rhs = rec->data + rhs_col->offset;
+            rhs_type = rhs_col->type;
+            cmp_len = std::min(lhs_col->len, rhs_col->len);
         }
-        return compare_result(compare_raw(lhs, rhs, lhs_col->type, lhs_col->len), cond.op);
+        return compare_result(compare_raw(lhs, rhs, lhs_col->type, rhs_type, cmp_len), cond.op);
     }
 
     bool eval_conds(const std::vector<Condition> &conds, const std::vector<ColMeta> &rec_cols, const RmRecord *rec) {
@@ -102,5 +125,26 @@ class AbstractExecutor {
             if (!eval_cond(cond, rec_cols, rec)) return false;
         }
         return true;
+    }
+
+    static void cast_value_to_col(Value &val, const ColMeta &col) {
+        if (val.type == col.type) return;
+        if (!is_numeric_type(val.type) || !is_numeric_type(col.type)) {
+            throw IncompatibleTypeError(coltype2str(col.type), coltype2str(val.type));
+        }
+        if (col.type == TYPE_FLOAT) {
+            val.set_float(static_cast<float>(val.type == TYPE_BIGINT ? val.bigint_val : val.int_val));
+        } else {
+            int64_t value = val.type == TYPE_FLOAT ? static_cast<int64_t>(val.float_val)
+                                                   : (val.type == TYPE_BIGINT ? val.bigint_val : val.int_val);
+            if (col.type == TYPE_INT) {
+                if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
+                    throw IncompatibleTypeError(coltype2str(col.type), coltype2str(val.type));
+                }
+                val.set_int(static_cast<int>(value));
+            } else {
+                val.set_bigint(value);
+            }
+        }
     }
 };

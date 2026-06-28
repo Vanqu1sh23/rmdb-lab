@@ -43,8 +43,9 @@ class UpdateExecutor : public AbstractExecutor {
             RmRecord new_rec(*old_rec);
             for (auto &set_clause : set_clauses_) {
                 auto col = tab_.get_col(set_clause.lhs.col_name);
-                if (col->type != set_clause.rhs.type) {
-                    throw IncompatibleTypeError(coltype2str(col->type), coltype2str(set_clause.rhs.type));
+                cast_value_to_col(set_clause.rhs, *col);
+                if (set_clause.rhs.raw == nullptr) {
+                    set_clause.rhs.init_raw(col->len);
                 }
                 memcpy(new_rec.data + col->offset, set_clause.rhs.raw->data, col->len);
             }

@@ -10,13 +10,37 @@ See the Mulan PSL v2 for more details. */
 
 #include "analyze.h"
 
+#include <cerrno>
+#include <cstdlib>
+#include <limits>
+
 namespace {
 bool is_numeric_type(ColType type) {
-    return type == TYPE_INT || type == TYPE_FLOAT;
+    return type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_FLOAT;
 }
 
 bool is_assignable(ColType target, ColType source) {
     return target == source || (is_numeric_type(target) && is_numeric_type(source));
+}
+
+int64_t value_to_i64(const Value &val) {
+    if (val.type == TYPE_INT) {
+        return val.int_val;
+    }
+    if (val.type == TYPE_BIGINT) {
+        return val.bigint_val;
+    }
+    return static_cast<int64_t>(val.float_val);
+}
+
+float value_to_float(const Value &val) {
+    if (val.type == TYPE_INT) {
+        return static_cast<float>(val.int_val);
+    }
+    if (val.type == TYPE_BIGINT) {
+        return static_cast<float>(val.bigint_val);
+    }
+    return val.float_val;
 }
 
 void cast_value_to_type(Value &val, ColType target_type) {
@@ -27,10 +51,26 @@ void cast_value_to_type(Value &val, ColType target_type) {
         return;
     }
     if (target_type == TYPE_FLOAT) {
-        val.set_float(val.type == TYPE_INT ? static_cast<float>(val.int_val) : val.float_val);
+        val.set_float(value_to_float(val));
+    } else if (target_type == TYPE_BIGINT) {
+        val.set_bigint(value_to_i64(val));
     } else {
-        val.set_int(val.type == TYPE_FLOAT ? static_cast<int>(val.float_val) : val.int_val);
+        int64_t v = value_to_i64(val);
+        if (v < std::numeric_limits<int>::min() || v > std::numeric_limits<int>::max()) {
+            throw IncompatibleTypeError(coltype2str(target_type), coltype2str(val.type));
+        }
+        val.set_int(static_cast<int>(v));
     }
+}
+
+int64_t parse_int64_literal(const std::string &text) {
+    errno = 0;
+    char *end = nullptr;
+    long long value = std::strtoll(text.c_str(), &end, 10);
+    if (errno == ERANGE || end == text.c_str() || *end != '\0') {
+        throw InternalError("Integer literal out of range");
+    }
+    return static_cast<int64_t>(value);
 }
 }
 
@@ -209,7 +249,12 @@ void Analyze::check_clause(const std::vector<std::string> &tab_names, std::vecto
 Value Analyze::convert_sv_value(const std::shared_ptr<ast::Value> &sv_val) {
     Value val;
     if (auto int_lit = std::dynamic_pointer_cast<ast::IntLit>(sv_val)) {
-        val.set_int(int_lit->val);
+        int64_t int_val = parse_int64_literal(int_lit->val);
+        if (int_val >= std::numeric_limits<int>::min() && int_val <= std::numeric_limits<int>::max()) {
+            val.set_int(static_cast<int>(int_val));
+        } else {
+            val.set_bigint(int_val);
+        }
     } else if (auto float_lit = std::dynamic_pointer_cast<ast::FloatLit>(sv_val)) {
         val.set_float(float_lit->val);
     } else if (auto str_lit = std::dynamic_pointer_cast<ast::StringLit>(sv_val)) {

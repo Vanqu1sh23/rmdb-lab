@@ -1,8 +1,12 @@
 %{
 #include "ast.h"
 #include "yacc.tab.h"
+#include "errors.h"
 #include <iostream>
 #include <memory>
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
 
 int yylex(YYSTYPE *yylval, YYLTYPE *yylloc);
 
@@ -22,7 +26,7 @@ using namespace ast;
 
 // keywords
 %token SHOW TABLES CREATE TABLE DROP DESC INSERT INTO VALUES DELETE FROM ASC ORDER BY
-WHERE UPDATE SET SELECT INT CHAR FLOAT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_COMMIT TXN_ABORT TXN_ROLLBACK ORDER_BY
+WHERE UPDATE SET SELECT INT CHAR FLOAT BIGINT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_COMMIT TXN_ABORT TXN_ROLLBACK ORDER_BY
 // non-keywords
 %token LEQ NEQ GEQ T_EOF
 
@@ -186,7 +190,15 @@ type:
     }
     |   CHAR '(' VALUE_INT ')'
     {
-        $$ = std::make_shared<TypeLen>(SV_TYPE_STRING, $3);
+        long long len = std::stoll($3);
+        if (len <= 0 || len > std::numeric_limits<int>::max()) {
+            throw InternalError("Invalid char length");
+        }
+        $$ = std::make_shared<TypeLen>(SV_TYPE_STRING, static_cast<int>(len));
+    }
+    |   BIGINT
+    {
+        $$ = std::make_shared<TypeLen>(SV_TYPE_BIGINT, sizeof(int64_t));
     }
     |   FLOAT
     {
