@@ -190,6 +190,8 @@ class IxIndexHandle {
     std::vector<Rid> range_scan(const char *lower, bool has_lower, bool lower_inclusive,
                                 const char *upper, bool has_upper, bool upper_inclusive) const;
 
+    void clear_entries() { entries_.clear(); }
+
     // for search
     bool get_value(const char *key, std::vector<Rid> *result, Transaction *transaction);
 

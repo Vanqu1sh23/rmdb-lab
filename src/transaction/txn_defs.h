@@ -48,9 +48,14 @@ class WriteRecord {
     WriteRecord(WType wtype, const std::string &tab_name, const Rid &rid, const RmRecord &record)
         : wtype_(wtype), tab_name_(tab_name), rid_(rid), record_(record) {}
 
+    WriteRecord(WType wtype, const std::string &tab_name, const Rid &rid, const RmRecord &old_record, const RmRecord &new_record)
+        : wtype_(wtype), tab_name_(tab_name), rid_(rid), record_(old_record), new_record_(new_record) {}
+
     ~WriteRecord() = default;
 
     inline RmRecord &GetRecord() { return record_; }
+
+    inline RmRecord &GetNewRecord() { return new_record_; }
 
     inline Rid &GetRid() { return rid_; }
 
@@ -63,6 +68,7 @@ class WriteRecord {
     std::string tab_name_;
     Rid rid_;
     RmRecord record_;
+    RmRecord new_record_;
 };
 
 /* 多粒度锁，加锁对象的类型，包括记录和表 */

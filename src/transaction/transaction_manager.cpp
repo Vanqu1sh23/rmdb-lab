@@ -10,9 +10,59 @@ See the Mulan PSL v2 for more details. */
 
 #include "transaction_manager.h"
 #include "record/rm_file_handle.h"
+#include "record/rm_scan.h"
 #include "system/sm_manager.h"
 
+#include <vector>
+#include <unordered_set>
+
 std::unordered_map<txn_id_t, Transaction *> TransactionManager::txn_map = {};
+
+namespace {
+std::vector<char> make_index_key(const IndexMeta &index, const RmRecord &rec) {
+    std::vector<char> key(index.col_tot_len);
+    int offset = 0;
+    for (auto &col : index.cols) {
+        memcpy(key.data() + offset, rec.data + col.offset, col.len);
+        offset += col.len;
+    }
+    return key;
+}
+
+void delete_index_entries(SmManager *sm_manager, const std::string &tab_name, const TabMeta &tab, const RmRecord &rec) {
+    for (auto &index : tab.indexes) {
+        auto key = make_index_key(index, rec);
+        auto ih = sm_manager->ihs_.at(sm_manager->get_ix_manager()->get_index_name(tab_name, index.cols)).get();
+        ih->delete_entry(key.data(), nullptr);
+    }
+}
+
+void insert_index_entries(SmManager *sm_manager, const std::string &tab_name, const TabMeta &tab, const RmRecord &rec, const Rid &rid) {
+    for (auto &index : tab.indexes) {
+        auto key = make_index_key(index, rec);
+        auto ih = sm_manager->ihs_.at(sm_manager->get_ix_manager()->get_index_name(tab_name, index.cols)).get();
+        ih->insert_entry(key.data(), rid, nullptr);
+    }
+}
+
+void rebuild_table_indexes(SmManager *sm_manager, const std::string &tab_name) {
+    auto tab = sm_manager->db_.get_table(tab_name);
+    if (tab.indexes.empty()) return;
+    auto fh = sm_manager->fhs_.at(tab_name).get();
+    for (auto &index : tab.indexes) {
+        auto ih = sm_manager->ihs_.at(sm_manager->get_ix_manager()->get_index_name(tab_name, index.cols)).get();
+        ih->clear_entries();
+    }
+    for (RmScan scan(fh); !scan.is_end(); scan.next()) {
+        auto rec = fh->get_record(scan.rid(), nullptr);
+        for (auto &index : tab.indexes) {
+            auto key = make_index_key(index, *rec);
+            auto ih = sm_manager->ihs_.at(sm_manager->get_ix_manager()->get_index_name(tab_name, index.cols)).get();
+            ih->insert_entry(key.data(), scan.rid(), nullptr);
+        }
+    }
+}
+}
 
 /**
  * @description: 事务的开始方法
@@ -38,6 +88,12 @@ Transaction * TransactionManager::begin(Transaction* txn, LogManager* log_manage
  */
 void TransactionManager::commit(Transaction* txn, LogManager* log_manager) {
     if (txn == nullptr) return;
+    if (txn->get_write_set() != nullptr) {
+        for (auto *wr : *txn->get_write_set()) {
+            delete wr;
+        }
+        txn->get_write_set()->clear();
+    }
     if (txn->get_lock_set() != nullptr) {
         auto locks = *txn->get_lock_set();
         for (auto &lock_data_id : locks) {
@@ -59,20 +115,34 @@ void TransactionManager::commit(Transaction* txn, LogManager* log_manager) {
 void TransactionManager::abort(Transaction * txn, LogManager *log_manager) {
     if (txn == nullptr) return;
     auto write_set = txn->get_write_set();
+    std::unordered_set<std::string> touched_tables;
     if (write_set != nullptr) {
+        for (auto *wr : *write_set) {
+            touched_tables.insert(wr->GetTableName());
+        }
         for (auto it = write_set->rbegin(); it != write_set->rend(); ++it) {
             WriteRecord *wr = *it;
-            auto fh = sm_manager_->fhs_.at(wr->GetTableName()).get();
+            const auto &tab_name = wr->GetTableName();
+            auto fh = sm_manager_->fhs_.at(tab_name).get();
+            auto tab = sm_manager_->db_.get_table(tab_name);
             if (wr->GetWriteType() == WType::INSERT_TUPLE) {
+                auto inserted_rec = fh->get_record(wr->GetRid(), nullptr);
+                delete_index_entries(sm_manager_, tab_name, tab, *inserted_rec);
                 fh->delete_record(wr->GetRid(), nullptr);
             } else if (wr->GetWriteType() == WType::DELETE_TUPLE) {
                 fh->insert_record(wr->GetRid(), wr->GetRecord().data);
+                insert_index_entries(sm_manager_, tab_name, tab, wr->GetRecord(), wr->GetRid());
             } else if (wr->GetWriteType() == WType::UPDATE_TUPLE) {
+                delete_index_entries(sm_manager_, tab_name, tab, wr->GetNewRecord());
                 fh->update_record(wr->GetRid(), wr->GetRecord().data, nullptr);
+                insert_index_entries(sm_manager_, tab_name, tab, wr->GetRecord(), wr->GetRid());
             }
             delete wr;
         }
         write_set->clear();
+    }
+    for (auto &tab_name : touched_tables) {
+        rebuild_table_indexes(sm_manager_, tab_name);
     }
     if (txn->get_lock_set() != nullptr) {
         auto locks = *txn->get_lock_set();

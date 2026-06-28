@@ -77,7 +77,7 @@ class UpdateExecutor : public AbstractExecutor {
 
             fh_->update_record(rid, new_rec.data, context_);
             if (context_ != nullptr && context_->txn_ != nullptr) {
-                context_->txn_->append_write_record(new WriteRecord(WType::UPDATE_TUPLE, tab_name_, rid, *old_rec));
+                context_->txn_->append_write_record(new WriteRecord(WType::UPDATE_TUPLE, tab_name_, rid, *old_rec, new_rec));
             }
         }
         return nullptr;
