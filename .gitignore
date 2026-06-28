@@ -1,0 +1,14 @@
+build/
+BufferPoolManagerTest_db/
+*.o
+*.a
+*.so
+*.out
+db.log
+output.txt
+abc.txt
+basic
+bigdata
+concurrency
+.DS_Store
+._*
