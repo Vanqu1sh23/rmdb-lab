@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 #include <unistd.h>
 
 #include <fstream>
+#include <set>
 
 #include "index/ix.h"
 #include "record/rm.h"
@@ -85,7 +86,23 @@ void SmManager::drop_db(const std::string& db_name) {
  * @param {string&} db_name 数据库名称，与文件夹同名
  */
 void SmManager::open_db(const std::string& db_name) {
-    
+    if (!is_dir(db_name)) {
+        throw DatabaseNotFoundError(db_name);
+    }
+    if (chdir(db_name.c_str()) < 0) {
+        throw UnixError();
+    }
+    std::ifstream ifs(DB_META_NAME);
+    if (!ifs.is_open()) {
+        throw FileNotFoundError(DB_META_NAME);
+    }
+    ifs >> db_;
+    for (auto &entry : db_.tabs_) {
+        fhs_[entry.first] = rm_manager_->open_file(entry.first);
+        for (auto &index : entry.second.indexes) {
+            ihs_[ix_manager_->get_index_name(entry.first, index.cols)] = ix_manager_->open_index(entry.first, index.cols);
+        }
+    }
 }
 
 /**
@@ -101,7 +118,18 @@ void SmManager::flush_meta() {
  * @description: 关闭数据库并把数据落盘
  */
 void SmManager::close_db() {
-    
+    flush_meta();
+    for (auto &entry : ihs_) {
+        ix_manager_->close_index(entry.second.get());
+    }
+    ihs_.clear();
+    for (auto &entry : fhs_) {
+        rm_manager_->close_file(entry.second.get());
+    }
+    fhs_.clear();
+    if (chdir("..") < 0) {
+        throw UnixError();
+    }
 }
 
 /**
@@ -158,11 +186,16 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
     if (db_.is_table(tab_name)) {
         throw TableExistsError(tab_name);
     }
+    std::set<std::string> col_names;
     // Create table meta
     int curr_offset = 0;
     TabMeta tab;
     tab.name = tab_name;
     for (auto &col_def : col_defs) {
+        if (col_names.count(col_def.name)) {
+            throw ColumnNotFoundError(col_def.name);
+        }
+        col_names.insert(col_def.name);
         ColMeta col = {.tab_name = tab_name,
                        .name = col_def.name,
                        .type = col_def.type,
@@ -188,7 +221,25 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
  * @param {Context*} context
  */
 void SmManager::drop_table(const std::string& tab_name, Context* context) {
-    
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+    TabMeta tab = db_.get_table(tab_name);
+    for (auto &index : tab.indexes) {
+        std::string ix_name = ix_manager_->get_index_name(tab_name, index.cols);
+        if (ihs_.count(ix_name)) {
+            ix_manager_->close_index(ihs_.at(ix_name).get());
+            ihs_.erase(ix_name);
+        }
+        ix_manager_->destroy_index(tab_name, index.cols);
+    }
+    if (fhs_.count(tab_name)) {
+        rm_manager_->close_file(fhs_.at(tab_name).get());
+        fhs_.erase(tab_name);
+    }
+    rm_manager_->destroy_file(tab_name);
+    db_.tabs_.erase(tab_name);
+    flush_meta();
 }
 
 /**

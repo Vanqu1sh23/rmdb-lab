@@ -46,16 +46,46 @@ class SeqScanExecutor : public AbstractExecutor {
     }
 
     void beginTuple() override {
-        
+        scan_ = std::make_unique<RmScan>(fh_);
+        while (!scan_->is_end()) {
+            auto rec = fh_->get_record(scan_->rid(), context_);
+            if (eval_conds(fed_conds_, cols_, rec.get())) {
+                rid_ = scan_->rid();
+                return;
+            }
+            scan_->next();
+        }
+        rid_ = {RM_NO_PAGE, -1};
     }
 
     void nextTuple() override {
-        
+        if (scan_ == nullptr || scan_->is_end()) {
+            rid_ = {RM_NO_PAGE, -1};
+            return;
+        }
+        scan_->next();
+        while (!scan_->is_end()) {
+            auto rec = fh_->get_record(scan_->rid(), context_);
+            if (eval_conds(fed_conds_, cols_, rec.get())) {
+                rid_ = scan_->rid();
+                return;
+            }
+            scan_->next();
+        }
+        rid_ = {RM_NO_PAGE, -1};
     }
 
     std::unique_ptr<RmRecord> Next() override {
-        return nullptr;
+        return fh_->get_record(rid_, context_);
     }
+
+    bool is_end() const override { return scan_ == nullptr || scan_->is_end(); }
+
+    size_t tupleLen() const override { return len_; }
+
+    const std::vector<ColMeta> &cols() const override { return cols_; }
+
+    ColMeta get_col_offset(const TabCol &target) override { return *get_col(cols_, target); }
 
     Rid &rid() override { return rid_; }
 };

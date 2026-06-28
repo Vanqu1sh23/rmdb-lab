@@ -10,6 +10,8 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include <cmath>
+
 #include "execution_defs.h"
 #include "common/common.h"
 #include "index/ix.h"
@@ -52,5 +54,53 @@ class AbstractExecutor {
             throw ColumnNotFoundError(target.tab_name + '.' + target.col_name);
         }
         return pos;
+    }
+
+    static int compare_raw(const char *lhs, const char *rhs, ColType type, int len) {
+        if (type == TYPE_INT) {
+            int l = *reinterpret_cast<const int *>(lhs);
+            int r = *reinterpret_cast<const int *>(rhs);
+            return (l > r) - (l < r);
+        }
+        if (type == TYPE_FLOAT) {
+            float l = *reinterpret_cast<const float *>(lhs);
+            float r = *reinterpret_cast<const float *>(rhs);
+            constexpr float eps = 1e-6f;
+            if (std::fabs(l - r) <= eps) return 0;
+            return l > r ? 1 : -1;
+        }
+        return strncmp(lhs, rhs, len);
+    }
+
+    static bool compare_result(int cmp, CompOp op) {
+        switch (op) {
+            case OP_EQ: return cmp == 0;
+            case OP_NE: return cmp != 0;
+            case OP_LT: return cmp < 0;
+            case OP_GT: return cmp > 0;
+            case OP_LE: return cmp <= 0;
+            case OP_GE: return cmp >= 0;
+        }
+        return false;
+    }
+
+    bool eval_cond(const Condition &cond, const std::vector<ColMeta> &rec_cols, const RmRecord *rec) {
+        auto lhs_col = get_col(rec_cols, cond.lhs_col);
+        const char *lhs = rec->data + lhs_col->offset;
+        const char *rhs = nullptr;
+        if (cond.is_rhs_val) {
+            rhs = cond.rhs_val.raw->data;
+        } else {
+            auto rhs_col = get_col(rec_cols, cond.rhs_col);
+            rhs = rec->data + rhs_col->offset;
+        }
+        return compare_result(compare_raw(lhs, rhs, lhs_col->type, lhs_col->len), cond.op);
+    }
+
+    bool eval_conds(const std::vector<Condition> &conds, const std::vector<ColMeta> &rec_cols, const RmRecord *rec) {
+        for (const auto &cond : conds) {
+            if (!eval_cond(cond, rec_cols, rec)) return false;
+        }
+        return true;
     }
 };
